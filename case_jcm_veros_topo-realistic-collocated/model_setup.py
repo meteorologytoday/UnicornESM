@@ -292,8 +292,10 @@ def build_model(
             temperature_relaxation_timescale=86400.0 * 10,
             drainage_timescale=jnp.asarray([86400.0 * 180.0,]),
         ),
+        land_clim_file = "forcing_era5_t31.nc",
         land_surface_temperature_from_clim_file = False,
-        snow_depth_from_clim_file = False,
+        snow_depth_from_clim_file = True,
+        snow_depth_varname_in_clim_file = "snowc",
     )
 
     # Create Veros
