@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.nfs*
 
 # C extensions
 *.so
@@ -218,3 +219,7 @@ __marimo__/
 .streamlit/secrets.toml
 *.nc
 *.out
+
+
+# Figures
+*.png
