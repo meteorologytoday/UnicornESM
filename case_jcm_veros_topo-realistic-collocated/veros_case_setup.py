@@ -160,6 +160,9 @@ def generateVerosSetup(
     dt_tracer: float = 1800.0,
     cold_start_ocean_temperature_reference_K: float = 10.0,
 ):
+    # Cold-start temperature: a linear profile from
+    # `cold_start_ocean_temperature_reference_K` (deg C despite the name) at
+    # the surface to 0 at the bottom.
 
     grid_info = GridInfo(
         rotated_grid = rotated_grid,

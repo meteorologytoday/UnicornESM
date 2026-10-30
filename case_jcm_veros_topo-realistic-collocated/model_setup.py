@@ -14,6 +14,7 @@ import numpy as np
 import jcm
 from jcm.physics.speedy.speedy_coords import get_speedy_coords
 from jcm.terrain import TerrainData
+from jcm.dycore.dinosaur.dycore import DinosaurDycore
 
 import xarray as xr
 
@@ -209,6 +210,9 @@ def build_model(
     shortwave_rpart: float = 0.58,
     shortwave_efold1: float = 0.35,
     shortwave_efold2: float = 23.0,
+    ocean_initial_surface_temperature: float = 10.0,
+    land_clim_file: str = "forcing_era5_t31.nc",
+    jcm_advection: str | None = None,
 ):
     """Build the coupled JCM + Veros + SlabLand system.
 
@@ -234,6 +238,14 @@ def build_model(
     `shortwave_efold2` metres share the flux regardless of how the grid is
     cut, so the surface layer can be made thin without the heating rate
     running away with it.
+
+    `ocean_initial_surface_temperature`: surface value (deg C) of the
+    cold-start ocean temperature, a linear profile decreasing to 0 at the
+    bottom. Ignored when resuming from a checkpoint.
+
+    `land_background_albedo`: uniform snow-free land albedo passed to JCM as
+    `alb0`. JCM adds snow on top (`alb0 + snowc * (albsn - alb0)`). Without
+    it JCM's `default_forcing` leaves `alb0` at zero.
     """
 
     grid_folder = Path(grid_folder)
@@ -262,12 +274,25 @@ def build_model(
     lat_deg = coords.horizontal.latitudes * 180 / jnp.pi
 
     # Create JCM
-    raw_atm_model = jcm.model.Model(
-        coords=coords,
-        start_time=start_datetime,
-        terrain=terrain,
-        time_step=jcm_dt/60.0,
-    )
+    # `jcm_advection=None` lets the physics pick (SPEEDY asks for Eulerian);
+    # "semi_lagrangian" or "eulerian" builds the dycore with that transport.
+    if jcm_advection is None:
+        raw_atm_model = jcm.model.Model(
+            coords=coords,
+            start_time=start_datetime,
+            terrain=terrain,
+            time_step=jcm_dt/60.0,
+        )
+    else:
+        raw_atm_model = jcm.model.Model(
+            DinosaurDycore(
+                coords=coords,
+                terrain=terrain,
+                dt_seconds=float(jcm_dt),
+                advection=jcm_advection,
+            ),
+            start_time=start_datetime,
+        )
     if freeze_season_at_day is not None:
         _freeze_season(raw_atm_model, freeze_season_at_day)
     
@@ -292,10 +317,11 @@ def build_model(
             temperature_relaxation_timescale=86400.0 * 10,
             drainage_timescale=jnp.asarray([86400.0 * 180.0,]),
         ),
-        land_clim_file = "forcing_era5_t31.nc",
+        land_clim_file = land_clim_file,
         land_surface_temperature_from_clim_file = False,
         snow_depth_from_clim_file = True,
         snow_depth_varname_in_clim_file = "snowc",
+        surface_albedo_from_clim_file = True,
     )
 
     # Create Veros
@@ -330,6 +356,7 @@ def build_model(
         # `_shortwave_penetration_divergence`, which spread it over the
         # top ~`shortwave_efold2` metres instead.
         ddz=_geometric_stretched_ddz(n_layers=30, surface_thickness=ocean_surface_thickness, total_depth=5200.0)[:number_of_ocean_layers],
+        cold_start_ocean_temperature_reference_K=ocean_initial_surface_temperature,
     )()
     ocn_model.setup()
     ocn_component = VerosComponent(ocn_model)
@@ -419,6 +446,10 @@ def build_model(
         wind_velocity = jnp.sqrt(jnp.maximum(wind_speed_squared, min_speed_magnitude ** 2))
         surface_taux = drag_coefficient * air_density * wind_velocity * wind_x
         surface_tauy = drag_coefficient * air_density * wind_velocity * wind_y
+
+        surface_taux = atm["derived"].eastward_wind_stress
+        surface_tauy = atm["derived"].northward_wind_stress
+
         # ===== compute wind stress end =====
 
         ocean_heat_flux = atm["derived"].total_heat_flux
@@ -471,6 +502,7 @@ def build_model(
         # Exchange information
         atm = dict(atm, forcing=atm["forcing"].replace(
             sea_surface_temperature = atmgrid_sea_surface_temperature,
+            alb0=lnd["state"].surface_albedo,
             sice_am=seaice["state"].ice_fraction,
             stl_am=atmgrid_stl_am,
             snowc_am=lnd["state"].snow_cover,

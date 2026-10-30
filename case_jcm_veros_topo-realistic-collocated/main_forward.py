@@ -31,6 +31,9 @@ parser.add_argument("--coupling-timestep-hours", type=float, help="Interval betw
 parser.add_argument("--checkpoint-interval", type=int, help="Save a checkpoint every this many simulation intervals.", default=1)
 parser.add_argument("--ocean-surface-thickness", type=float, help="Thickness (m) of the ocean's top vertical layer, in the geometric-stretched ddz grid built by model_setup._geometric_stretched_ddz.", default=30.0)
 parser.add_argument("--no-shortwave-penetration", action="store_true", help="Absorb the whole solar flux in the ocean's top layer instead of spreading it over depth with the two-band exponential profile of model_setup._shortwave_penetration_divergence. Mainly a control knob for stability experiments.")
+parser.add_argument("--ocean-initial-surface-temperature", type=float, help="Surface temperature (deg C) of the cold-start ocean, a linear profile decreasing to 0 at the bottom. Ignored when resuming from a checkpoint.", default=10.0)
+parser.add_argument("--jcm-advection", type=str, choices=["semi_lagrangian", "eulerian"], help="JCM dycore transport scheme. Default: let the physics decide (SPEEDY picks Eulerian).", default=None)
+parser.add_argument("--land-forcing-file", type=str, help="Forcing file for land model", default="forcing_era5_t31.nc")
 args = parser.parse_args()
 
 print(f"jcm library is located at: {jcm.__file__}")
@@ -64,6 +67,8 @@ model, config = build_model(
     grid_folder = args.grid_folder,
     ocean_surface_thickness = args.ocean_surface_thickness,
     enable_shortwave_penetration = not args.no_shortwave_penetration,
+    ocean_initial_surface_temperature = args.ocean_initial_surface_temperature,
+    jcm_advection = args.jcm_advection,
 )
 
 print(f"Model info: {model!r}")
