@@ -15,6 +15,9 @@ import jcm
 from jcm.physics.speedy.speedy_coords import get_speedy_coords
 from jcm.terrain import TerrainData
 from jcm.dycore.dinosaur.dycore import DinosaurDycore
+from jcm.physics.speedy.params import Parameters
+from jcm.physics.speedy.speedy_terms import speedy_physics
+import dataclasses
 
 import xarray as xr
 
@@ -263,7 +266,7 @@ def build_model(
     # (lon, lat), vars lsm/orog); it holds the same land fraction and
     # topography as the "atm" domain of `dm`.
 
-    ds_terrain = xr.load_dataset(grid_folder / f"topo_JCM_T{truncation_number:d}.nc")
+    ds_terrain = xr.load_dataset(grid_folder / f"atm_topo_JCM_T{truncation_number:d}.nc")
     terrain = TerrainData.from_coords(
         coords=coords,
         # The file is (nj, ni) = (lat, lon); JCM wants (lon, lat).
@@ -272,6 +275,8 @@ def build_model(
     )
     lon_deg = coords.horizontal.longitudes * 180 / jnp.pi
     lat_deg = coords.horizontal.latitudes * 180 / jnp.pi
+
+    atm_physics = speedy_physics(parameters=Parameters.default())
 
     # Create JCM
     # `jcm_advection=None` lets the physics pick (SPEEDY asks for Eulerian);
@@ -282,6 +287,7 @@ def build_model(
             start_time=start_datetime,
             terrain=terrain,
             time_step=jcm_dt/60.0,
+            physics=atm_physics,
         )
     else:
         raw_atm_model = jcm.model.Model(
@@ -291,6 +297,7 @@ def build_model(
                 dt_seconds=float(jcm_dt),
                 advection=jcm_advection,
             ),
+            physics=atm_physics,
             start_time=start_datetime,
         )
     if freeze_season_at_day is not None:
@@ -318,10 +325,14 @@ def build_model(
             drainage_timescale=jnp.asarray([86400.0 * 180.0,]),
         ),
         land_clim_file = land_clim_file,
-        land_surface_temperature_from_clim_file = False,
+        land_surface_temperature_from_clim_file = True,
+        soil_water_content_from_clim_file = True,
         snow_depth_from_clim_file = True,
-        snow_depth_varname_in_clim_file = "snowc",
         surface_albedo_from_clim_file = True,
+        land_surface_temperature_varname_in_clim_file = "stl",
+        soil_water_content_varname_in_clim_file = "soilw_am",
+        snow_depth_varname_in_clim_file = "snowc",
+
     )
 
     # Create Veros
@@ -340,7 +351,7 @@ def build_model(
     ocn_model = generateVerosSetup(
         rotated_grid=False,
         scrip_grid_file = grid_folder / f"{ocean_grid:s}.SCRIP.nc",
-        landsea_mask_file = grid_folder / f"topo_{ocean_grid:s}.nc",
+        landsea_mask_file = grid_folder / f"ocn_topo_{ocean_grid:s}.nc",
         dt_mom=veros_dt_mom,
         dt_tracer=veros_dt_tracer,
         # 30-layer geometric-stretch grid, same 5200 m total depth as the
@@ -488,20 +499,16 @@ def build_model(
                 / ocn_rho_0,
             )
         # ===== penetrating shortwave radiation end =====
-            
+ 
         sea_surface_temperature = ocn["derived"].sea_surface_temperature
-
-        atmgrid_sea_surface_temperature = jnp.clip(
-            sea_surface_temperature,
-            250.0,
-            310.0, 
-        )
-        atmgrid_stl_am = lnd["state"].land_surface_temperature
+        sea_ice_temperature = atm["derived"].physics["_surface_flux"].t0
         
+        atmgrid_stl_am = lnd["state"].land_surface_temperature
 
         # Exchange information
         atm = dict(atm, forcing=atm["forcing"].replace(
-            sea_surface_temperature = atmgrid_sea_surface_temperature,
+            sea_surface_temperature = sea_surface_temperature,
+            sea_ice_temperature = sea_ice_temperature,
             alb0=lnd["state"].surface_albedo,
             sice_am=seaice["state"].ice_fraction,
             stl_am=atmgrid_stl_am,
