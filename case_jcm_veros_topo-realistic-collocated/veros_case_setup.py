@@ -140,7 +140,8 @@ class GridInfo:
         mask_ds = xr.open_dataset(self.landsea_mask_file)
         is_land = mask_ds["landsea_mask"].to_numpy().reshape(ny, nx) == 1
         landsea_mask = (1 - is_land.astype(int)).transpose()  # -> ocean=1/land=0, (xt, yt); Veros kbot wants 0 = land
-
+        bathymetry = mask_ds["bathymetry"].to_numpy().transpose()
+        
         self.nx = nx
         self.ny = ny
         self.dyt = dyt
@@ -149,7 +150,7 @@ class GridInfo:
         self.x_origin = x_origin
         self.true_lat_xy = true_lat_xy
         self.landsea_mask = landsea_mask
-
+        self.bathymetry = bathymetry
 
 def generateVerosSetup(
     rotated_grid: bool,
